@@ -43,8 +43,8 @@ input, select, button {
 
   <select id="route">
     <option value="">Selecciona ruta</option>
-    <option value="A">Ruta A (1 → 5)</option>
-    <option value="B">Ruta B (5 → 1)</option>
+    <option value="A">Ruta A (1 → 7 → Final)</option>
+    <option value="B">Ruta B (7 → 1 → Final)</option>
   </select><br>
 
   <button onclick="startGame()">Start</button>
@@ -99,26 +99,46 @@ let startTime = 0;
 let finished = false;
 let scanner = null;
 
-/* ================= RUTAS ================= */
+/* ================= RUTAS (SIN FINAL) ================= */
 const ROUTES = {
-  A: ["META_1", "META_2", "BONUS_1", "META_FINAL"],
-  B: ["META_2", "META_1", "BONUS_1", "META_FINAL"]
+  A: ["QR1","QR2","QR3","QR4","QR5","QR6","QR7"],
+  B: ["QR7","QR6","QR5","QR4","QR3","QR2","QR1"]
 };
 
 /* ================= PISTAS ================= */
 const clues = {
-  META_1: "🌳 Busca donde hay árboles.",
-  META_2: "🏔 Ve al lugar más alto.",
-  BONUS_1: "⚡ Bonus: -10 segundos",
-  META_FINAL: "🏁 ¡Terminaste!"
+  QR1: "🌲 Estos baños están bloqueados por un árbol, ahora son almacén",
+  QR2: "☕ Esta cafetería tiene potencia, lástima que esté en obra negra",
+  QR3: "🐔 Aquí murió la gallina Claudio",
+  QR4: "🗼 Esta torre se supone que da señal a Pirgua",
+  QR5: "🌊 La vecina tenía un lago… ahora está seco",
+  QR6: "🗿 Esas piedras en medio… ¿por qué estarán ahí?",
+  QR7: "🌳 Este tronco es enorme, ¿qué tan grande fue antes?",
+  QR8_FINAL: "🏁 ¡Meta final alcanzada!",
+
+  BONUS_50: "🌟 Logro escondido: -50 segundos",
+  BONUS_30: "🌟 Logro escondido: -30 segundos",
+  WINNER_1: "⭐ Ganador oculto: -60 segundos",
+  WINNER_2: "⭐ Ganador oculto: -60 segundos",
+  WINNER_3: "⭐ Ganador oculto: -60 segundos"
 };
 
 /* ================= LOGROS ================= */
 const trophyNames = {
-  META_1: "🌳 Explorador",
-  META_2: "🏔 Aventurero",
-  BONUS_1: "⚡ Velocista",
-  META_FINAL: "🏁 Campeón"
+  QR1: "🌲 Explorador",
+  QR2: "☕ Cafetero",
+  QR3: "🐔 Testigo",
+  QR4: "🗼 Conectado",
+  QR5: "🌊 Nostálgico",
+  QR6: "🗿 Curioso",
+  QR7: "🌳 Leñador",
+  QR8_FINAL: "🏁 Finalista",
+
+  BONUS_50: "🌟 Bonus -50s",
+  BONUS_30: "🌟 Bonus -30s",
+  WINNER_1: "⭐ Ganador oculto",
+  WINNER_2: "⭐ Ganador oculto",
+  WINNER_3: "⭐ Ganador oculto"
 };
 
 /* ================= INICIO ================= */
@@ -150,6 +170,7 @@ function startGame() {
 
   document.getElementById("login").style.display = "none";
   document.getElementById("game").style.display = "block";
+
   document.getElementById("playerInfo").innerText =
     `Jugador: ${player} | Equipo: ${team} | Ruta: ${route}`;
 
@@ -159,8 +180,8 @@ function startGame() {
 /* ================= TIEMPO ================= */
 function updateTime() {
   if (finished) return;
-  const seconds = Math.floor((Date.now() - startTime) / 1000);
-  document.getElementById("time").innerText = `⏱ ${seconds} s`;
+  document.getElementById("time").innerText =
+    `⏱ ${Math.floor((Date.now() - startTime) / 1000)} s`;
 }
 
 /* ================= ESCANEO ================= */
@@ -170,11 +191,42 @@ function scanQR() {
   const qr = document.getElementById("qrInput").value.trim();
   if (!qr) return;
 
+  /* ===== BONUS Y LOGROS OCULTOS ===== */
+  if (qr.startsWith("BONUS") || qr.startsWith("WINNER")) {
+    if (qr === "BONUS_50") startTime -= 50000;
+    if (qr === "BONUS_30") startTime -= 30000;
+    if (qr.startsWith("WINNER")) startTime -= 60000;
+
+    document.getElementById("clue").innerText = clues[qr];
+    return;
+  }
+
   const ref = db.collection("games").doc(player);
 
   ref.get().then(doc => {
     const data = doc.data();
-    const expected = ROUTES[data.route][data.trophies.length];
+    const routeList = ROUTES[data.route];
+
+    /* ===== FINAL ===== */
+    if (qr === "QR8_FINAL") {
+      if (data.trophies.length !== routeList.length) {
+        alert("❌ Aún no completas todas las pistas");
+        return;
+      }
+
+      finished = true;
+      data.finished = true;
+      data.time = Math.floor((Date.now() - startTime) / 1000);
+
+      ref.update(data);
+      document.getElementById("clue").innerText = clues[qr];
+      document.getElementById("rankingBox").style.display = "block";
+      loadRanking();
+      return;
+    }
+
+    /* ===== RUTA NORMAL ===== */
+    const expected = routeList[data.trophies.length];
 
     if (qr !== expected) {
       alert("❌ QR incorrecto para esta ruta");
@@ -182,16 +234,6 @@ function scanQR() {
     }
 
     data.trophies.push(qr);
-
-    if (qr === "BONUS_1") startTime -= 10000;
-
-    if (qr === "META_FINAL") {
-      finished = true;
-      data.finished = true;
-      data.time = Math.floor((Date.now() - startTime) / 1000);
-      document.getElementById("rankingBox").style.display = "block";
-      loadRanking();
-    }
 
     ref.update(data);
     document.getElementById("clue").innerText = clues[qr];
