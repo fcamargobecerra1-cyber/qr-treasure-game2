@@ -1,186 +1,249 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <title>Búsqueda del Tesoro QR</title>
+<meta charset="UTF-8">
+<title>QR Treasure Hunt</title>
 
-  <!-- Firebase -->
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
-  <!-- Escáner QR -->
-  <script src="https://unpkg.com/html5-qrcode"></script>
+<!-- QR Scanner -->
+<script src="https://unpkg.com/html5-qrcode"></script>
 
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      text-align: center;
-      background: #f4f4f4;
-      padding: 30px;
-    }
-    input, button {
-      padding: 10px;
-      font-size: 16px;
-      margin: 5px;
-    }
-    #game { display: none; }
-    #reader { margin: auto; }
-    img { max-width: 100%; }
-  </style>
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background: #f4f4f4;
+  text-align: center;
+  padding: 30px;
+}
+input, select, button {
+  padding: 10px;
+  margin: 6px;
+}
+#game, #rankingBox {
+  display: none;
+}
+#reader {
+  margin: auto;
+  width: 300px;
+}
+</style>
 </head>
+
 <body>
 
-<h1>🏴‍☠️ Búsqueda del Tesoro</h1>
+<h1>🏴‍☠️ Treasure Hunt</h1>
 
 <!-- LOGIN -->
 <div id="login">
-  <p>Ingresa tu nombre</p>
-  <input type="text" id="name" placeholder="Tu nombre">
-  <br>
-  <button onclick="startGame()">Iniciar</button>
+  <input id="name" placeholder="Jugador"><br>
+  <input id="team" placeholder="Equipo"><br>
+
+  <select id="route">
+    <option value="">Selecciona ruta</option>
+    <option value="A">Ruta A (1 → 5)</option>
+    <option value="B">Ruta B (5 → 1)</option>
+  </select><br>
+
+  <button onclick="startGame()">Start</button>
 </div>
 
-<!-- JUEGO -->
+<!-- GAME -->
 <div id="game">
-  <h2 id="playerName"></h2>
-  <p id="time">⏱️ Tiempo: 0 s</p>
+  <h2 id="playerInfo"></h2>
+  <p id="time">⏱ 0 s</p>
 
-  <h3>📥 Escanear QR (manual)</h3>
-  <input type="text" id="qrInput" placeholder="Código QR">
+  <h3>📥 QR manual</h3>
+  <input id="qrInput" placeholder="Código QR">
   <button onclick="scanQR()">Enviar</button>
 
-  <h3>📷 Escanear con cámara</h3>
-  <div id="reader" style="width:300px;"></div>
-  <button onclick="startScanner()">Activar cámara</button>
-  <button onclick="stopScanner()">Detener cámara</button>
+  <h3>📷 Cámara</h3>
+  <div id="reader"></div>
+  <button onclick="startScanner()">Activar</button>
+  <button onclick="stopScanner()">Detener</button>
 
   <h3>🧩 Pista</h3>
   <div id="clue"></div>
 
-  <h3>🏆 Trofeos</h3>
+  <h3>⭐ Logros</h3>
   <ul id="trophies"></ul>
 </div>
 
+<!-- RANKING -->
+<div id="rankingBox">
+  <h2>🏆 Ranking</h2>
+  <ol id="ranking"></ol>
+</div>
+
 <script>
-/* 🔥 CONFIGURACIÓN FIREBASE */
+/* ================= FIREBASE ================= */
 const firebaseConfig = {
-  apiKey: "TU_API_KEY",
-  authDomain: "TU_DOMINIO",
-  projectId: "TU_PROJECT_ID",
+  apiKey: "AIzaSyCnbWVep308i-Bo12xeJJoo_VFPd9RJoOI",
+  authDomain: "qr-treasure-game.firebaseapp.com",
+  projectId: "qr-treasure-game",
+  storageBucket: "qr-treasure-game.firebasestorage.app",
+  messagingSenderId: "255665365234",
+  appId: "1:255665365234:web:b0d76d1cbd6256849df06b"
 };
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
-/* VARIABLES */
+/* ================= VARIABLES ================= */
 let player = "";
+let team = "";
+let route = "";
 let startTime = 0;
 let finished = false;
-let qrScanner;
+let scanner = null;
 
-/* PISTAS (NIVEL 4) */
-const clues = {
-  "META_1": { type: "text", content: "Busca donde hay árboles." },
-  "META_2": { type: "text", content: "Ahora ve al lugar más alto." },
-  "BONUS_1": { type: "text", content: "🎁 Bonus: -10 segundos" },
-  "META_FINAL": { type: "text", content: "🏁 ¡Terminaste el juego!" }
+/* ================= RUTAS ================= */
+const ROUTES = {
+  A: ["META_1", "META_2", "BONUS_1", "META_FINAL"],
+  B: ["META_2", "META_1", "BONUS_1", "META_FINAL"]
 };
 
-/* INICIO JUEGO (NIVEL 1) */
+/* ================= PISTAS ================= */
+const clues = {
+  META_1: "🌳 Busca donde hay árboles.",
+  META_2: "🏔 Ve al lugar más alto.",
+  BONUS_1: "⚡ Bonus: -10 segundos",
+  META_FINAL: "🏁 ¡Terminaste!"
+};
+
+/* ================= LOGROS ================= */
+const trophyNames = {
+  META_1: "🌳 Explorador",
+  META_2: "🏔 Aventurero",
+  BONUS_1: "⚡ Velocista",
+  META_FINAL: "🏁 Campeón"
+};
+
+/* ================= INICIO ================= */
 function startGame() {
-  player = document.getElementById("name").value.trim();
-  if (!player) return alert("Escribe tu nombre");
+  const nameInput = document.getElementById("name");
+  const teamInput = document.getElementById("team");
+  const routeInput = document.getElementById("route");
+
+  player = nameInput.value.trim();
+  team = teamInput.value.trim();
+  route = routeInput.value;
+
+  if (!player || !team || !route) {
+    alert("Completa todos los campos");
+    return;
+  }
 
   startTime = Date.now();
 
-  db.collection("players").doc(player).set({
-    name: player,
-    startTime,
+  db.collection("games").doc(player).set({
+    player,
+    team,
+    route,
     trophies: [],
+    startTime,
     finished: false,
     time: 0
   });
 
   document.getElementById("login").style.display = "none";
   document.getElementById("game").style.display = "block";
-  document.getElementById("playerName").innerText = "Jugador: " + player;
+  document.getElementById("playerInfo").innerText =
+    `Jugador: ${player} | Equipo: ${team} | Ruta: ${route}`;
 
   setInterval(updateTime, 1000);
 }
 
-/* TIEMPO */
+/* ================= TIEMPO ================= */
 function updateTime() {
   if (finished) return;
   const seconds = Math.floor((Date.now() - startTime) / 1000);
-  document.getElementById("time").innerText = "⏱️ Tiempo: " + seconds + " s";
+  document.getElementById("time").innerText = `⏱ ${seconds} s`;
 }
 
-/* ESCANEO QR (NIVELES 2–3–4) */
+/* ================= ESCANEO ================= */
 function scanQR() {
   if (finished) return;
 
   const qr = document.getElementById("qrInput").value.trim();
-  if (!qr || !clues[qr]) return alert("QR inválido");
+  if (!qr) return;
 
-  db.collection("players").doc(player).get().then(doc => {
-    let data = doc.data();
-    if (data.trophies.includes(qr)) return;
+  const ref = db.collection("games").doc(player);
+
+  ref.get().then(doc => {
+    const data = doc.data();
+    const expected = ROUTES[data.route][data.trophies.length];
+
+    if (qr !== expected) {
+      alert("❌ QR incorrecto para esta ruta");
+      return;
+    }
 
     data.trophies.push(qr);
 
-    if (qr.startsWith("BONUS")) {
-      startTime -= 10000; // -10s
-    }
+    if (qr === "BONUS_1") startTime -= 10000;
 
     if (qr === "META_FINAL") {
       finished = true;
       data.finished = true;
       data.time = Math.floor((Date.now() - startTime) / 1000);
+      document.getElementById("rankingBox").style.display = "block";
+      loadRanking();
     }
 
-    db.collection("players").doc(player).update(data);
-    renderClue(qr);
+    ref.update(data);
+    document.getElementById("clue").innerText = clues[qr];
     renderTrophies(data.trophies);
   });
 }
 
-/* MOSTRAR PISTA */
-function renderClue(qr) {
-  const box = document.getElementById("clue");
-  box.innerHTML = "";
-
-  if (clues[qr].type === "text") {
-    box.innerText = clues[qr].content;
-  }
-}
-
-/* MOSTRAR TROFEOS */
+/* ================= LOGROS ================= */
 function renderTrophies(list) {
   const ul = document.getElementById("trophies");
   ul.innerHTML = "";
   list.forEach(t => {
     const li = document.createElement("li");
-    li.innerText = t;
+    li.innerText = trophyNames[t];
     ul.appendChild(li);
   });
 }
 
-/* NIVEL 5 — ESCÁNER CÁMARA */
+/* ================= RANKING ================= */
+async function loadRanking() {
+  const list = document.getElementById("ranking");
+  list.innerHTML = "";
+
+  const snap = await db.collection("games")
+    .where("finished", "==", true)
+    .orderBy("time")
+    .limit(10)
+    .get();
+
+  snap.forEach(doc => {
+    const d = doc.data();
+    const li = document.createElement("li");
+    li.innerText = `${d.team} - ${d.player} (${d.time}s)`;
+    list.appendChild(li);
+  });
+}
+
+/* ================= CÁMARA ================= */
 function startScanner() {
-  qrScanner = new Html5Qrcode("reader");
-  qrScanner.start(
+  scanner = new Html5Qrcode("reader");
+  scanner.start(
     { facingMode: "environment" },
     { fps: 10, qrbox: 250 },
-    qrCode => {
-      document.getElementById("qrInput").value = qrCode;
+    qr => {
+      document.getElementById("qrInput").value = qr;
       scanQR();
-    },
-    () => {}
+    }
   );
 }
 
 function stopScanner() {
-  if (qrScanner) qrScanner.stop();
+  if (scanner) scanner.stop();
 }
 </script>
 
