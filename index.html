@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Búsqueda del Tesoro QR</title>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+  <!-- Escáner QR -->
+  <script src="https://unpkg.com/html5-qrcode"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background: #f4f4f4;
+      padding: 30px;
+    }
+    input, button {
+      padding: 10px;
+      font-size: 16px;
+      margin: 5px;
+    }
+    #game { display: none; }
+    #reader { margin: auto; }
+    img { max-width: 100%; }
+  </style>
+</head>
+<body>
+
+<h1>🏴‍☠️ Búsqueda del Tesoro</h1>
+
+<!-- LOGIN -->
+<div id="login">
+  <p>Ingresa tu nombre</p>
+  <input type="text" id="name" placeholder="Tu nombre">
+  <br>
+  <button onclick="startGame()">Iniciar</button>
+</div>
+
+<!-- JUEGO -->
+<div id="game">
+  <h2 id="playerName"></h2>
+  <p id="time">⏱️ Tiempo: 0 s</p>
+
+  <h3>📥 Escanear QR (manual)</h3>
+  <input type="text" id="qrInput" placeholder="Código QR">
+  <button onclick="scanQR()">Enviar</button>
+
+  <h3>📷 Escanear con cámara</h3>
+  <div id="reader" style="width:300px;"></div>
+  <button onclick="startScanner()">Activar cámara</button>
+  <button onclick="stopScanner()">Detener cámara</button>
+
+  <h3>🧩 Pista</h3>
+  <div id="clue"></div>
+
+  <h3>🏆 Trofeos</h3>
+  <ul id="trophies"></ul>
+</div>
+
+<script>
+/* 🔥 CONFIGURACIÓN FIREBASE */
+const firebaseConfig = {
+  apiKey: "TU_API_KEY",
+  authDomain: "TU_DOMINIO",
+  projectId: "TU_PROJECT_ID",
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+/* VARIABLES */
+let player = "";
+let startTime = 0;
+let finished = false;
+let qrScanner;
+
+/* PISTAS (NIVEL 4) */
+const clues = {
+  "META_1": { type: "text", content: "Busca donde hay árboles." },
+  "META_2": { type: "text", content: "Ahora ve al lugar más alto." },
+  "BONUS_1": { type: "text", content: "🎁 Bonus: -10 segundos" },
+  "META_FINAL": { type: "text", content: "🏁 ¡Terminaste el juego!" }
+};
+
+/* INICIO JUEGO (NIVEL 1) */
+function startGame() {
+  player = document.getElementById("name").value.trim();
+  if (!player) return alert("Escribe tu nombre");
+
+  startTime = Date.now();
+
+  db.collection("players").doc(player).set({
+    name: player,
+    startTime,
+    trophies: [],
+    finished: false,
+    time: 0
+  });
+
+  document.getElementById("login").style.display = "none";
+  document.getElementById("game").style.display = "block";
+  document.getElementById("playerName").innerText = "Jugador: " + player;
+
+  setInterval(updateTime, 1000);
+}
+
+/* TIEMPO */
+function updateTime() {
+  if (finished) return;
+  const seconds = Math.floor((Date.now() - startTime) / 1000);
+  document.getElementById("time").innerText = "⏱️ Tiempo: " + seconds + " s";
+}
+
+/* ESCANEO QR (NIVELES 2–3–4) */
+function scanQR() {
+  if (finished) return;
+
+  const qr = document.getElementById("qrInput").value.trim();
+  if (!qr || !clues[qr]) return alert("QR inválido");
+
+  db.collection("players").doc(player).get().then(doc => {
+    let data = doc.data();
+    if (data.trophies.includes(qr)) return;
+
+    data.trophies.push(qr);
+
+    if (qr.startsWith("BONUS")) {
+      startTime -= 10000; // -10s
+    }
+
+    if (qr === "META_FINAL") {
+      finished = true;
+      data.finished = true;
+      data.time = Math.floor((Date.now() - startTime) / 1000);
+    }
+
+    db.collection("players").doc(player).update(data);
+    renderClue(qr);
+    renderTrophies(data.trophies);
+  });
+}
+
+/* MOSTRAR PISTA */
+function renderClue(qr) {
+  const box = document.getElementById("clue");
+  box.innerHTML = "";
+
+  if (clues[qr].type === "text") {
+    box.innerText = clues[qr].content;
+  }
+}
+
+/* MOSTRAR TROFEOS */
+function renderTrophies(list) {
+  const ul = document.getElementById("trophies");
+  ul.innerHTML = "";
+  list.forEach(t => {
+    const li = document.createElement("li");
+    li.innerText = t;
+    ul.appendChild(li);
+  });
+}
+
+/* NIVEL 5 — ESCÁNER CÁMARA */
+function startScanner() {
+  qrScanner = new Html5Qrcode("reader");
+  qrScanner.start(
+    { facingMode: "environment" },
+    { fps: 10, qrbox: 250 },
+    qrCode => {
+      document.getElementById("qrInput").value = qrCode;
+      scanQR();
+    },
+    () => {}
+  );
+}
+
+function stopScanner() {
+  if (qrScanner) qrScanner.stop();
+}
+</script>
+
+</body>
+</html>
